@@ -90,14 +90,20 @@ Populating 5 related tables with 100 records each — complete with proper looku
 - A **Microsoft Dataverse** environment (Power Platform / Dynamics 365)
 - Azure AD account with read/write access to the target environment
 
-### Quick Start
+### How to Use
 
 1. Install the extension from [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=vinothselvam.dataverse-sample-data-generator)
-2. Open Command Palette → **Dataverse Sample Data: Open Generator UI**
-3. Enter your environment URL (e.g., `https://yourorg.crm.dynamics.com`)
-4. Click **Connect** and sign in via browser
-5. Select tables, set record counts, add a business context description
-6. Click **Generate** and watch real-time progress
+2. Open the **Command Palette** (`Ctrl+Shift+P` on Windows / `Cmd+Shift+P` on Mac)
+3. Search for and select **"Dataverse Sample Data: Open Generator UI"**
+4. The Generator UI opens as a panel inside VS Code — everything happens here:
+   - **Connect** — enter your Dataverse environment URL and sign in via browser
+   - **Select Tables** — pick the tables you want to populate (e.g., Account, Lead, Contact)
+   - **Configure** — set record count, column mode, and optionally describe your business context
+   - **Generate** — click and watch real-time progress as AI-generated records are created
+
+![Dataverse Sample Data Generator UI](Screenshots/Screen_Main.png)
+
+> **Tip:** You can also access the tool through GitHub Copilot Chat using `@dvdata` — see the Chat Integration section below.
 
 ### Using with Copilot Chat
 
