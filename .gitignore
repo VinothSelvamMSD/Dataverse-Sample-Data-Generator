@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+generate_docs.py
+generate-icon.js
+Dataverse_Sample_Data_Generator_Documentation.docx
+~$*

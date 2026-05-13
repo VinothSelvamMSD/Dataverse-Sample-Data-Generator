@@ -1,0 +1,195 @@
+{
+  "name": "dataverse-sample-data-generator",
+  "displayName": "Dataverse Sample Data Generator",
+  "description": "Generate realistic sample data for any Microsoft Dataverse environment. Works standalone or with GitHub Copilot Chat.",
+  "version": "0.1.0",
+  "publisher": "vinothselvam",
+  "icon": "icon.png",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other",
+    "Chat"
+  ],
+  "keywords": [
+    "dataverse",
+    "sample data",
+    "power platform",
+    "dynamics 365",
+    "copilot"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dvdata.connect",
+        "title": "Connect to Dataverse Environment",
+        "category": "Dataverse Sample Data"
+      },
+      {
+        "command": "dvdata.disconnect",
+        "title": "Disconnect from Dataverse",
+        "category": "Dataverse Sample Data"
+      },
+      {
+        "command": "dvdata.generate",
+        "title": "Generate Sample Data",
+        "category": "Dataverse Sample Data"
+      },
+      {
+        "command": "dvdata.showPlan",
+        "title": "Show Execution Plan (Dry Run)",
+        "category": "Dataverse Sample Data"
+      },
+      {
+        "command": "dvdata.openUI",
+        "title": "Open Generator UI",
+        "category": "Dataverse Sample Data"
+      }
+    ],
+    "configuration": {
+      "title": "Dataverse Sample Data Generator",
+      "properties": {
+        "dvdata.environmentUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Dataverse environment URL (e.g., https://org.crm.dynamics.com)"
+        },
+        "dvdata.authMethod": {
+          "type": "string",
+          "default": "browser",
+          "enum": [
+            "browser",
+            "deviceCode",
+            "clientCredentials"
+          ],
+          "enumDescriptions": [
+            "Browser sign-in (recommended — supports MFA, SSO, federation)",
+            "Device code flow (fallback for restricted environments)",
+            "App registration (Client ID + Client Secret, no user context)"
+          ],
+          "description": "Authentication method for Dataverse connection"
+        },
+        "dvdata.clientId": {
+          "type": "string",
+          "default": "",
+          "description": "Azure AD App Registration Client ID"
+        },
+        "dvdata.tenantId": {
+          "type": "string",
+          "default": "",
+          "description": "Azure AD Tenant ID"
+        },
+        "dvdata.maxRecordsPerRun": {
+          "type": "number",
+          "default": 5000,
+          "description": "Maximum total records per generation run (safety limit)"
+        },
+        "dvdata.batchSize": {
+          "type": "number",
+          "default": 100,
+          "description": "Number of operations per $batch request (max 1000)"
+        }
+      }
+    },
+    "chatParticipants": [
+      {
+        "id": "dvdata.chatParticipant",
+        "name": "dvdata",
+        "fullName": "Dataverse Sample Data",
+        "description": "Generate sample data for Dataverse tables",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "connect",
+            "description": "Connect to a Dataverse environment"
+          },
+          {
+            "name": "tables",
+            "description": "List available tables in the connected environment"
+          },
+          {
+            "name": "plan",
+            "description": "Show execution plan for data generation (dry run)"
+          },
+          {
+            "name": "generate",
+            "description": "Generate and insert sample data into Dataverse"
+          },
+          {
+            "name": "cleanup",
+            "description": "Remove previously generated sample data"
+          }
+        ],
+        "disambiguation": [
+          {
+            "category": "dataverse-sample-data",
+            "description": "The user wants to generate, create, or insert sample, test, or demo data into a Microsoft Dataverse environment, Power Platform, or Dynamics 365 tables.",
+            "examples": [
+              "Generate 500 sample contacts in my Dataverse environment",
+              "Create test data for Account and Contact tables",
+              "I need realistic demo data for my Power Apps",
+              "Fill my dev environment with sample records",
+              "Generate data for Dynamics 365 tables with proper relationships"
+            ]
+          }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "dvdata_generate_sample_data",
+        "displayName": "Generate Dataverse Sample Data",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "dvdata",
+        "icon": "$(database)",
+        "userDescription": "Generate and insert realistic sample data into Microsoft Dataverse tables with proper relationships",
+        "modelDescription": "Generates realistic sample data and inserts it into Microsoft Dataverse (Power Platform / Dynamics 365) tables. Reads table metadata dynamically, resolves dependencies and relationships between tables, and bulk-inserts records using the Dataverse Web API. Supports configurable record counts per table, seeded random generation for reproducibility, and scenario prompts for domain-specific data (e.g., 'finance company', 'healthcare clinic'). Requires an active Dataverse connection. Returns a summary of created records, any errors, and a run manifest.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "tables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of Dataverse table logical names to generate data for (e.g., ['account', 'contact']). If empty, the user will be prompted to select tables."
+            },
+            "recordCount": {
+              "type": "number",
+              "description": "Number of records to generate per table. Defaults to 50 if not specified."
+            },
+            "seed": {
+              "type": "number",
+              "description": "Random seed for reproducible data generation. Optional."
+            },
+            "scenario": {
+              "type": "string",
+              "description": "Scenario prompt for domain-specific realistic data (e.g., 'finance company in New York', 'healthcare clinic in London'). Optional."
+            }
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "lint": "eslint src/",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.100.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@azure/msal-node": "^3.0.0",
+    "@faker-js/faker": "^9.0.0"
+  }
+}
