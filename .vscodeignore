@@ -3,7 +3,12 @@ src/**
 tsconfig.json
 esbuild.config.mjs
 generate-icon.js
+generate_docs.py
 node_modules/**
 .gitignore
 *.ts
 **/*.map
+*.docx
+~$*
+*.vsix
+package-lock.json

@@ -2,10 +2,14 @@
   "name": "dataverse-sample-data-generator",
   "displayName": "Dataverse Sample Data Generator",
   "description": "Generate realistic sample data for any Microsoft Dataverse environment. Works standalone or with GitHub Copilot Chat.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "vinothselvam",
   "icon": "icon.png",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VinothSelvamMSD/Dataverse-Sample-Data-Generator"
+  },
   "engines": {
     "vscode": "^1.100.0"
   },
