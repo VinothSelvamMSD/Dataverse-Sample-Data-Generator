@@ -24,37 +24,9 @@ This extension uses the **AI language models built into GitHub Copilot** to gene
 
 ### Business Context Changes Everything
 
-Give the tool a simple description, and the AI generates data that fits:
+Give the tool a simple description like *"Healthcare clinic in Singapore"* or *"Law firm in London"*, and the AI generates data that fits — region-appropriate names, industry-specific job titles, realistic case descriptions, matching email domains. Across related tables, the context stays consistent: accounts, contacts, and cases all tell the same coherent story.
 
-| Business Context | Account Name | City | Industry |
-|---|---|---|---|
-| *"Healthcare clinic chain in Singapore"* | Raffles Medical Group | Singapore | Healthcare |
-| *"Automotive dealership network in Germany"* | Autohaus München GmbH | Munich | Automotive |
-| *"Retail coffee chain in Seattle"* | Pike Place Roasters | Seattle | Food & Beverage |
-| *"Law firm in London"* | Chambers & Whitfield LLP | London | Legal |
-| *No context (traditional random)* | Test Account 47 | City_0293 | Option_3 |
-
-The difference is night and day. With context, your demo environments look like production. Without it, they look like test data.
-
-### More Examples — Context Across Related Tables
-
-When you generate across related tables, the AI keeps the context consistent:
-
-**Context: *"University in Tokyo"***
-| Table | Sample Record |
-|---|---|
-| Account | Tokyo Institute of Technology |
-| Contact | Yuki Tanaka, Associate Professor, yuki.tanaka@titech.ac.jp |
-| Case | "Student portal login issues during enrollment period" |
-
-**Context: *"Insurance company in New York"***
-| Table | Sample Record |
-|---|---|
-| Account | Empire State Insurance Corp |
-| Contact | Michael Rivera, Claims Adjuster, m.rivera@esinsurance.com |
-| Case | "Auto claim #CLM-2024-8847 pending damage assessment" |
-
-Every record is coherent — names match the region, job titles match the industry, case descriptions match the business. This is what AI-powered generation means.
+Without context, you get `Test Account 47` and `City_0293`. With context, your demo environment looks like production.
 
 ## Why a VS Code Extension?
 
@@ -77,14 +49,9 @@ This tight integration with Copilot is what enables the contextual generation th
 - **Solution architects** setting up trial instances — populate an entire Dynamics 365 environment in minutes, not days
 - **Trainers** preparing training environments — generate consistent, realistic data that trainees can relate to
 
-### Time Savings
+### Save Hours, Not Minutes
 
-| Task | Manual Approach | With This Extension |
-|---|---|---|
-| Populate 5 tables with 100 records each | 2-4 hours (CSV prep, import, fix relationships) | ~2 minutes |
-| Create demo data for a client vertical | Half a day (research + manual entry) | ~3 minutes (just describe the business) |
-| Reset and repopulate a trial instance | 1-2 hours | ~5 minutes (generate + cleanup) |
-| Generate data with proper lookups | Write custom scripts | Automatic (dependency resolution built in) |
+Populating 5 related tables with 100 records each — complete with proper lookups and realistic values — typically takes 2-4 hours of CSV prep, manual imports, and relationship fixing. With this extension, it takes about 2 minutes. Describe your business context, pick your tables, click Generate. Need to tear it down and start fresh? Cleanup mode handles that in seconds, respecting referential integrity automatically.
 
 ---
 
