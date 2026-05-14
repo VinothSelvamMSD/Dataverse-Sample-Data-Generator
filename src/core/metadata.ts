@@ -111,6 +111,7 @@ interface RawAttributeDefinition {
   AttributeType: string;
   RequiredLevel: { Value: string };
   IsValidForCreate: boolean;
+  AttributeOf?: string | null;
   MaxLength?: number;
   MinValue?: number;
   MaxValue?: number;
@@ -285,8 +286,7 @@ export class MetadataReader {
       this.client.getAll<RawAttributeDefinition>(
         `EntityDefinitions(LogicalName='${entityLogicalName}')/Attributes`,
         {
-          $select: 'LogicalName,SchemaName,DisplayName,Description,AttributeType,RequiredLevel,IsValidForCreate',
-          $filter: 'IsValidForCreate eq true',
+          $select: 'LogicalName,SchemaName,DisplayName,Description,AttributeType,RequiredLevel,IsValidForCreate,AttributeOf',
         }
       ),
     ]);
@@ -294,12 +294,25 @@ export class MetadataReader {
     // Build a map of enriched columns keyed by logicalName
     const columnMap = new Map<string, ColumnMetadata>();
 
+    // Build a set of virtual "AttributeOf" fields from the base query — these are
+    // supporting/computed fields (e.g. emailsendername, owneridname) that Dataverse
+    // metadata marks as IsValidForCreate but OData rejects.
+    const virtualFields = new Set<string>();
+    for (const attr of baseAttrs) {
+      if (attr.AttributeOf) {
+        virtualFields.add(attr.LogicalName);
+      }
+    }
+
     // Helper to add a base column
     const addBase = (attr: { LogicalName: string; SchemaName: string; DisplayName: { UserLocalizedLabel?: { Label: string } }; Description: { UserLocalizedLabel?: { Label: string } }; AttributeType: string; RequiredLevel: { Value: string }; IsValidForCreate: boolean }) => {
       if (['Virtual', 'EntityName', 'CalendarRules', 'PartyList'].includes(attr.AttributeType)) {
         return;
       }
       if (!attr.IsValidForCreate) {
+        return;
+      }
+      if (virtualFields.has(attr.LogicalName)) {
         return;
       }
       if (!columnMap.has(attr.LogicalName)) {
@@ -318,6 +331,7 @@ export class MetadataReader {
     // Process typed results — they have the enriched properties
     for (const attr of strings) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -335,6 +349,7 @@ export class MetadataReader {
 
     for (const attr of memos) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -350,6 +365,7 @@ export class MetadataReader {
 
     for (const attr of integers) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -365,6 +381,7 @@ export class MetadataReader {
 
     for (const attr of [...doubles, ...decimals, ...moneys]) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -381,6 +398,7 @@ export class MetadataReader {
 
     for (const attr of lookups) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -395,6 +413,7 @@ export class MetadataReader {
 
     for (const attr of dateTimes) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -409,6 +428,7 @@ export class MetadataReader {
 
     for (const attr of picklists) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,
@@ -422,6 +442,7 @@ export class MetadataReader {
 
     for (const attr of booleans) {
       if (!attr.IsValidForCreate) continue;
+      if (virtualFields.has(attr.LogicalName)) continue;
       columnMap.set(attr.LogicalName, {
         logicalName: attr.LogicalName,
         schemaName: attr.SchemaName,

@@ -78,25 +78,57 @@ export class Writer {
 
     // === PHASE 1: Create records layer by layer ===
     for (const layer of plan.insertionOrder) {
-      for (const tableName of layer.tables) {
+      // Pre-generate records for ALL tables in this layer in parallel (AI calls are the bottleneck)
+      const layerTables = layer.tables.filter(tableName => {
         const metadata = tablesMetadata.get(tableName);
-        if (!metadata) {
-          allErrors.push(`Metadata not found for table: ${tableName}`);
-          continue;
-        }
-
         const count = plan.recordCounts.get(tableName) || 0;
-        if (count === 0) {
-          continue;
-        }
+        return metadata && count > 0;
+      });
+
+      if (layerTables.length === 0) continue;
+
+      onProgress?.(
+        `Generating data for ${layerTables.length} table(s): ${layerTables.join(', ')}...`,
+        (completedOps / totalOps) * 100
+      );
+
+      // Parallel AI generation for all tables in the layer
+      const generatedRecords = new Map<string, Record<string, any>[]>();
+      const genPromises = layerTables.map(async (tableName) => {
+        const metadata = tablesMetadata.get(tableName)!;
+        const count = plan.recordCounts.get(tableName) || 0;
+        const records = await recordProvider(metadata, count);
+        return { tableName, records };
+      });
+
+      const genResults = await Promise.all(genPromises);
+      for (const { tableName, records } of genResults) {
+        generatedRecords.set(tableName, records);
+      }
+
+      // Sequential writes (need createdRecordIds for lookup binding within same layer)
+      for (const tableName of layerTables) {
+        const metadata = tablesMetadata.get(tableName)!;
+        const count = plan.recordCounts.get(tableName) || 0;
+        const records = generatedRecords.get(tableName) || [];
 
         onProgress?.(
-          `Creating ${count} records in ${metadata.displayName}...`,
+          `Writing ${count} records to ${metadata.displayName}...`,
           (completedOps / totalOps) * 100
         );
 
-        // Generate records
-        const records = await recordProvider(metadata, count);
+        // Build a whitelist of safe column names for this table
+        const columnMap = new Map(metadata.columns.map(c => [c.logicalName, c]));
+        const unsafeTypes = new Set(['Uniqueidentifier', 'State', 'Status', 'Lookup', 'Customer', 'Owner', 'PartyList', 'Virtual', 'EntityName', 'CalendarRules']);
+        const safeColumns = new Set<string>();
+        for (const [name, col] of columnMap) {
+          if (name === metadata.primaryIdAttribute) continue;
+          if (!col.isValidForCreate) continue;
+          if (unsafeTypes.has(col.attributeType)) continue;
+          if (col.isComputed || col.isAutoNumber) continue;
+          safeColumns.add(name);
+        }
+        console.log(`[Writer] ${tableName}: ${safeColumns.size} safe columns out of ${metadata.columns.length} total`);
 
         // Bind lookups (non-deferred only)
         const deferredCols = new Set(
@@ -118,8 +150,26 @@ export class Writer {
               bound[key] = value;
             }
           }
+          // Final sanitization: WHITELIST approach — only keep safe columns and @odata.bind
+          const stripped: string[] = [];
+          for (const key of Object.keys(bound)) {
+            if (key.includes('@odata.bind')) continue;
+            if (!safeColumns.has(key)) {
+              stripped.push(key);
+              delete bound[key];
+            }
+          }
+          if (stripped.length > 0) {
+            console.log(`[Writer] ${tableName}: stripped fields: ${stripped.join(', ')}`);
+          }
           return bound;
         });
+
+        // Log first record payload for debugging
+        if (boundRecords.length > 0) {
+          console.log(`[Writer] ${tableName}: entitySetName=${metadata.entitySetName}, primaryId=${metadata.primaryIdAttribute}`);
+          console.log(`[Writer] ${tableName}: sample payload: ${JSON.stringify(boundRecords[0])}`);
+        }
 
         // Insert via $batch
         const result = await this.insertRecords(
@@ -202,6 +252,11 @@ export class Writer {
     const boundColumns = new Set<string>();
 
     for (const rel of metadata.manyToOneRelationships) {
+      // Never bind the primary key as a lookup (e.g., activityid → activitypointer)
+      if (rel.referencingAttribute === metadata.primaryIdAttribute) {
+        continue;
+      }
+
       // Skip deferred cyclic lookups
       if (deferredColumns.has(rel.referencingAttribute)) {
         continue;
@@ -276,6 +331,9 @@ export class Writer {
     const resolvedEntities = new Map<string, { entitySetName: string; recordId: string } | null>();
 
     for (const rel of metadata.manyToOneRelationships) {
+      // Never bind the primary key as a lookup (e.g., activityid → activitypointer)
+      if (rel.referencingAttribute === metadata.primaryIdAttribute) continue;
+
       if (deferredColumns.has(rel.referencingAttribute)) continue;
 
       // Skip if we already have created records for this target

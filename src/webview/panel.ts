@@ -530,7 +530,7 @@ export class DataverseWebviewPanel {
         // Load table names if not cached
         const client = new DataverseClient(this._connection);
         const reader = new MetadataReader(client);
-        const tables = await reader.getTableList();
+        const tables = await reader.getSelectableTables();
         tableListForPrompt = tables.map(t => t.logicalName).join(', ');
       }
 
@@ -849,6 +849,7 @@ Rules:
 
       const allCols = metadata.columns.filter((col) => {
         if (col.logicalName === metadata.primaryIdAttribute) return false;
+        if (!col.isValidForCreate) return false;
         if (['State', 'Status'].includes(col.attributeType)) return false;
         if (['Lookup', 'Customer', 'Owner'].includes(col.attributeType)) return false;
         if (col.attributeType === 'Uniqueidentifier') return false;
@@ -967,7 +968,7 @@ Rules:
             return text;
           },
           columnFilter: filterColumns,
-          concurrency: 3,
+          concurrency: 5,
         });
 
         return {
@@ -1157,6 +1158,21 @@ function getWebviewHtml(nonce: string): string {
     button.secondary {
       background: var(--btn-secondary-bg);
       color: var(--btn-secondary-fg);
+    }
+    #btn-upload-doc {
+      width: 100%;
+      padding: 10px 16px;
+      font-size: 0.9em;
+      margin-top: 10px;
+      border: 1px solid var(--border) !important;
+      border-radius: 6px;
+      cursor: pointer;
+      background: transparent;
+      color: var(--fg);
+    }
+    #btn-upload-doc:hover {
+      border-color: var(--accent) !important;
+      background: var(--btn-secondary-bg);
     }
 
     /* Table list */
@@ -1427,15 +1443,11 @@ function getWebviewHtml(nonce: string): string {
       </div>
       <button id="btn-connect">Connect</button>
     </div>
-    <div id="context-area" class="hidden" style="margin-top:12px;">
-      <div class="input-row">
-        <label for="app-context">📝 Business Context <span style="color:var(--description-fg);font-weight:normal;">(describes what kind of data to generate)</span></label>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <input type="text" id="app-context" placeholder="e.g., Healthcare clinic management, E-commerce retail store, Banking loan processing..." style="font-size:1em;padding:8px 12px;flex:1;">
-          <button id="btn-upload-doc" class="secondary" style="white-space:nowrap;padding:8px 14px;font-size:0.9em;" title="Upload a document to auto-extract business context and detect tables">📄 Upload Doc</button>
-        </div>
-        <div id="doc-status" class="hidden" style="margin-top:6px;font-size:0.85em;color:var(--description-fg);"></div>
-      </div>
+    <div id="context-area" class="hidden" style="margin-top:16px;padding:14px 16px;border:1px dashed var(--border);border-radius:8px;">
+      <label for="app-context" style="display:block;margin-bottom:8px;font-size:0.95em;">📝 Business Context <span style="color:var(--description-fg);font-weight:normal;">(describes what kind of data to generate)</span></label>
+      <textarea id="app-context" placeholder="e.g., Healthcare clinic management system in Singapore with patient records, appointment scheduling, and billing..." style="font-size:0.95em;padding:12px 14px;min-height:90px;resize:vertical;font-family:inherit;line-height:1.6;width:100%;box-sizing:border-box;border-radius:6px;"></textarea>
+      <button id="btn-upload-doc" class="secondary" title="Upload a document to auto-extract business context and detect tables">📄 Upload Document to Extract Context</button>
+      <div id="doc-status" style="font-size:0.85em;color:var(--description-fg);margin-top:8px;"></div>
     </div>
   </div>
 

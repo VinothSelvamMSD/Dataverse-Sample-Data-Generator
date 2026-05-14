@@ -119,6 +119,17 @@ export function isSystemField(name: string): boolean {
   // Aging buckets (auto-calculated)
   if (name.startsWith('aging')) return true;
 
+  // Lookup display name fields (read-only, computed by platform)
+  // e.g., acceptingentityidname, owneridname, regardingobjectidname
+  if (name.endsWith('idname')) return true;
+
+  // Polymorphic lookup type discriminator fields (read-only)
+  // e.g., acceptingentityidtype, regardingobjectidtype, customeridtype
+  if (name.endsWith('idtype')) return true;
+
+  // Activity party fields — not directly writable via OData
+  if (name === 'from' || name === 'to' || name === 'cc' || name === 'bcc' || name === 'requiredattendees' || name === 'optionalattendees' || name === 'organizer' || name === 'resources') return true;
+
   // Internal date tracking suffixes (_date, _state for rollup fields)
   if (name.endsWith('_date') || name.endsWith('_state')) {
     // Only if it looks like a rollup tracking field (has a base name that's also a rollup)

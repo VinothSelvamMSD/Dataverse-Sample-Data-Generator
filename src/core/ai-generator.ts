@@ -68,8 +68,8 @@ export class AIDataGenerator {
       columns = [...required, ...highValue, ...rest].slice(0, 25);
     }
 
-    // Fixed batch size of 5 — proven sweet spot for output token limits
-    const batchSize = Math.min(count, 5);
+    // Fixed batch size of 10 — balances LLM output token limits vs fewer round-trips
+    const batchSize = Math.min(count, 10);
 
     const prompt = this.buildPrompt(metadata, columns, tableContext);
     const allRecords: GeneratedRecord[] = [];
@@ -286,7 +286,7 @@ Rules: populate EVERY column. Picklist values=integers from options. Vary data r
         const col = columnMap.get(key)!;
         // Skip system fields
         if (col.logicalName === metadata.primaryIdAttribute) continue;
-        if (['State', 'Status', 'Lookup', 'Customer', 'Owner'].includes(col.attributeType)) continue;
+        if (['State', 'Status', 'Lookup', 'Customer', 'Owner', 'Uniqueidentifier'].includes(col.attributeType)) continue;
 
         // Basic type coercion/validation
         const sanitized = this.sanitizeValue(value, col);
