@@ -28,6 +28,7 @@ type WebviewMessage =
   | { type: 'loadTables' }
   | { type: 'loadColumns'; tableName: string }
   | { type: 'generate'; tables: TableConfig[]; context?: string }
+  | { type: 'analyzeDocument' }
   | { type: 'cleanupPlan'; tables: Array<{ logicalName: string; recordCount: number; sortOrder: string; fetchXml?: string }> }
   | { type: 'cleanupExecute' }
   | { type: 'cleanupRecordCount'; tableName: string }
@@ -40,6 +41,7 @@ type ExtensionMessage =
   | { type: 'columns'; tableName: string; columns: Array<{ logicalName: string; displayName: string; description?: string; attributeType: string; isRequired: boolean; maxLength?: number }> }
   | { type: 'progress'; message: string; percentage?: number }
   | { type: 'result'; result: RunResult; tableDataSources?: Record<string, { source: string; error?: string }> }
+  | { type: 'documentContext'; context: string; suggestedTables?: string[] }
   | { type: 'cleanupPlan'; plan: { steps: Array<{ order: number; logicalName: string; displayName: string; recordCount: number; sortOrder: string; fetchXml?: string; reason: string }>; summary: string } }
   | { type: 'cleanupResult'; result: CleanupResult }
   | { type: 'cleanupRecordCount'; tableName: string; count: number }
@@ -158,6 +160,10 @@ export class DataverseWebviewPanel {
 
       case 'generate':
         await this._handleGenerate(message.tables, message.context);
+        break;
+
+      case 'analyzeDocument':
+        await this._handleAnalyzeDocument();
         break;
 
       case 'cleanupPlan':
@@ -454,6 +460,273 @@ export class DataverseWebviewPanel {
       const msg = err instanceof Error ? err.message : String(err);
       this._log(`[Cleanup] Record count failed for ${tableName}: ${msg}`);
       this._postMessage({ type: 'cleanupRecordCount', tableName, count: -1 });
+    }
+  }
+
+  private async _handleAnalyzeDocument() {
+    // Let user pick a document file
+    const fileUris = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectMany: false,
+      filters: {
+        'Documents': ['txt', 'md', 'pdf', 'docx', 'doc'],
+        'All Files': ['*'],
+      },
+      title: 'Select a document to extract business context',
+    });
+
+    if (!fileUris || fileUris.length === 0) return;
+
+    const fileUri = fileUris[0];
+    const fileName = fileUri.fsPath.split(/[\\/]/).pop() || 'document';
+    this._log(`[Document] User selected: ${fileUri.fsPath}`);
+    this._postMessage({ type: 'progress', message: `📄 Reading document: ${fileName}...` });
+
+    try {
+      // Read file content
+      let documentText = '';
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
+      if (ext === 'txt' || ext === 'md') {
+        const bytes = await vscode.workspace.fs.readFile(fileUri);
+        documentText = Buffer.from(bytes).toString('utf-8');
+      } else if (ext === 'docx' || ext === 'doc') {
+        // For docx, read as text by extracting XML content
+        const bytes = await vscode.workspace.fs.readFile(fileUri);
+        // Simple docx text extraction — read the raw XML and strip tags
+        const raw = Buffer.from(bytes).toString('utf-8');
+        // If it's a real docx (zip), we extract readable text using a basic approach
+        documentText = await this._extractDocxText(fileUri);
+      } else if (ext === 'pdf') {
+        // PDF: read raw bytes and attempt basic text extraction
+        documentText = await this._extractPdfText(fileUri);
+      } else {
+        // Try reading as plain text
+        const bytes = await vscode.workspace.fs.readFile(fileUri);
+        documentText = Buffer.from(bytes).toString('utf-8');
+      }
+
+      if (!documentText || documentText.trim().length < 20) {
+        this._postMessage({ type: 'error', message: 'Could not extract meaningful text from the document. Try a .txt or .md file.' });
+        return;
+      }
+
+      // Truncate if too large (keep first ~15000 chars to fit in LLM context)
+      const maxChars = 15000;
+      if (documentText.length > maxChars) {
+        documentText = documentText.substring(0, maxChars) + '\n\n[... document truncated for analysis ...]';
+        this._log(`[Document] Truncated to ${maxChars} chars`);
+      }
+
+      this._log(`[Document] Extracted ${documentText.length} chars from ${fileName}`);
+      this._postMessage({ type: 'progress', message: '🤖 Analyzing document with AI...' });
+
+      // Get available table names for matching
+      const availableTables = Array.from(this._tablesMetadataCache.keys());
+      let tableListForPrompt = '';
+      if (availableTables.length > 0) {
+        tableListForPrompt = availableTables.join(', ');
+      } else if (this._connection) {
+        // Load table names if not cached
+        const client = new DataverseClient(this._connection);
+        const reader = new MetadataReader(client);
+        const tables = await reader.getTableList();
+        tableListForPrompt = tables.map(t => t.logicalName).join(', ');
+      }
+
+      // Call LLM to extract context and identify tables
+      const models = await vscode.lm.selectChatModels();
+      const usableModels = models.filter((m) => !m.name.includes('Internal only'));
+      const model = usableModels[0];
+
+      if (!model) {
+        this._postMessage({ type: 'error', message: 'No AI models available. Make sure GitHub Copilot is active.' });
+        return;
+      }
+
+      const prompt = `You are analyzing a business document to extract context for generating sample data in a Microsoft Dataverse environment.
+
+Document content:
+---
+${documentText}
+---
+
+${tableListForPrompt ? `Available Dataverse tables in this environment: ${tableListForPrompt}` : ''}
+
+Please analyze this document and respond in EXACTLY this JSON format (no markdown, no explanation):
+{
+  "businessContext": "A concise 1-2 sentence description of the business domain and application described in this document",
+  "suggestedTables": ["table1", "table2"]
+}
+
+Rules:
+- "businessContext" should describe the business scenario clearly enough to generate realistic sample data (e.g., "Healthcare clinic management system in Singapore with patient records and appointment scheduling")
+- "suggestedTables" should contain Dataverse logical table names (from the available tables list) that are relevant to this document. Only include tables that are clearly referenced or implied. Return an empty array if none match.
+- Return ONLY the JSON object, nothing else.`;
+
+      const messages = [vscode.LanguageModelChatMessage.User(prompt)];
+      const response = await model.sendRequest(messages, {
+        justification: 'Analyze uploaded document to extract business context for Dataverse sample data generation.',
+      });
+
+      let responseText = '';
+      for await (const chunk of response.text) {
+        responseText += chunk;
+      }
+
+      this._log(`[Document] LLM response: ${responseText}`);
+
+      // Parse the JSON response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        this._postMessage({ type: 'error', message: 'AI could not analyze the document. Try a different file.' });
+        return;
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const context = parsed.businessContext || '';
+      const suggestedTables: string[] = parsed.suggestedTables || [];
+
+      this._log(`[Document] Extracted context: ${context}`);
+      this._log(`[Document] Suggested tables: ${suggestedTables.join(', ') || '(none)'}`);
+
+      this._postMessage({ type: 'documentContext', context, suggestedTables });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._log(`[Document] Analysis failed: ${msg}`);
+      this._postMessage({ type: 'error', message: `Document analysis failed: ${msg}` });
+    }
+  }
+
+  /** Extract text from a .docx file (ZIP with XML inside) */
+  private async _extractDocxText(fileUri: vscode.Uri): Promise<string> {
+    try {
+      // Use a child process to run a quick Node script for unzipping
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const { Readable } = await import('stream');
+      const { createInflateRaw } = await import('zlib');
+
+      // Docx is a ZIP file. We need to find word/document.xml and extract text.
+      // Using a minimal approach with the built-in 'zlib' module
+      const buffer = Buffer.from(bytes);
+
+      // Check ZIP magic number
+      if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+        return ''; // Not a valid ZIP/docx
+      }
+
+      // Find the End of Central Directory record
+      let eocdOffset = -1;
+      for (let i = buffer.length - 22; i >= 0; i--) {
+        if (buffer.readUInt32LE(i) === 0x06054b50) {
+          eocdOffset = i;
+          break;
+        }
+      }
+      if (eocdOffset === -1) return '';
+
+      const cdOffset = buffer.readUInt32LE(eocdOffset + 16);
+      const cdSize = buffer.readUInt32LE(eocdOffset + 12);
+
+      // Parse central directory to find word/document.xml
+      let offset = cdOffset;
+      const textParts: string[] = [];
+
+      while (offset < cdOffset + cdSize) {
+        if (buffer.readUInt32LE(offset) !== 0x02014b50) break;
+        const compMethod = buffer.readUInt16LE(offset + 10);
+        const compSize = buffer.readUInt32LE(offset + 20);
+        const uncompSize = buffer.readUInt32LE(offset + 24);
+        const nameLen = buffer.readUInt16LE(offset + 28);
+        const extraLen = buffer.readUInt16LE(offset + 30);
+        const commentLen = buffer.readUInt16LE(offset + 32);
+        const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+        const name = buffer.toString('utf-8', offset + 46, offset + 46 + nameLen);
+
+        if (name === 'word/document.xml' || name.startsWith('word/document') && name.endsWith('.xml')) {
+          // Read from local file header
+          const localNameLen = buffer.readUInt16LE(localHeaderOffset + 26);
+          const localExtraLen = buffer.readUInt16LE(localHeaderOffset + 28);
+          const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+          const compressedData = buffer.subarray(dataStart, dataStart + compSize);
+
+          let xmlContent: string;
+          if (compMethod === 0) {
+            xmlContent = compressedData.toString('utf-8');
+          } else {
+            // Deflate
+            const { inflateRawSync } = await import('zlib');
+            const decompressed = inflateRawSync(compressedData);
+            xmlContent = decompressed.toString('utf-8');
+          }
+
+          // Strip XML tags, keep text content
+          const text = xmlContent
+            .replace(/<w:p[^>]*>/g, '\n')
+            .replace(/<w:tab\/>/g, '\t')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          textParts.push(text);
+        }
+
+        offset += 46 + nameLen + extraLen + commentLen;
+      }
+
+      return textParts.join('\n');
+    } catch (err) {
+      this._log(`[Document] DOCX extraction failed: ${err}`);
+      return '';
+    }
+  }
+
+  /** Extract text from a PDF file (basic extraction for text-based PDFs) */
+  private async _extractPdfText(fileUri: vscode.Uri): Promise<string> {
+    try {
+      const bytes = await vscode.workspace.fs.readFile(fileUri);
+      const content = Buffer.from(bytes).toString('latin1');
+
+      // Basic PDF text extraction — finds text between BT and ET operators
+      const textParts: string[] = [];
+      const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+      let match;
+
+      // Also try to extract text directly from parenthesized strings in page content
+      const textOps = content.match(/\(([^)]*)\)\s*Tj|\(([^)]*)\)\s*'/g);
+      if (textOps) {
+        for (const op of textOps) {
+          const textMatch = op.match(/\(([^)]*)\)/);
+          if (textMatch) {
+            textParts.push(textMatch[1]);
+          }
+        }
+      }
+
+      // Also try TJ arrays
+      const tjRegex = /\[(.*?)\]\s*TJ/g;
+      while ((match = tjRegex.exec(content)) !== null) {
+        const items = match[1].match(/\(([^)]*)\)/g);
+        if (items) {
+          textParts.push(items.map(i => i.slice(1, -1)).join(''));
+        }
+      }
+
+      const result = textParts.join(' ').replace(/\\n/g, '\n').replace(/\\r/g, '').trim();
+
+      if (!result || result.length < 20) {
+        this._log('[Document] PDF text extraction yielded insufficient text. PDF may be image-based.');
+        return '';
+      }
+
+      return result;
+    } catch (err) {
+      this._log(`[Document] PDF extraction failed: ${err}`);
+      return '';
     }
   }
 
@@ -1157,7 +1430,11 @@ function getWebviewHtml(nonce: string): string {
     <div id="context-area" class="hidden" style="margin-top:12px;">
       <div class="input-row">
         <label for="app-context">📝 Business Context <span style="color:var(--description-fg);font-weight:normal;">(describes what kind of data to generate)</span></label>
-        <input type="text" id="app-context" placeholder="e.g., Healthcare clinic management, E-commerce retail store, Banking loan processing..." style="font-size:1em;padding:8px 12px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" id="app-context" placeholder="e.g., Healthcare clinic management, E-commerce retail store, Banking loan processing..." style="font-size:1em;padding:8px 12px;flex:1;">
+          <button id="btn-upload-doc" class="secondary" style="white-space:nowrap;padding:8px 14px;font-size:0.9em;" title="Upload a document to auto-extract business context and detect tables">📄 Upload Doc</button>
+        </div>
+        <div id="doc-status" class="hidden" style="margin-top:6px;font-size:0.85em;color:var(--description-fg);"></div>
       </div>
     </div>
   </div>
@@ -1276,6 +1553,17 @@ function getWebviewHtml(nonce: string): string {
 
     document.getElementById('btn-disconnect').addEventListener('click', function() {
       vscode.postMessage({ type: 'disconnect' });
+    });
+
+    document.getElementById('btn-upload-doc').addEventListener('click', function() {
+      var docStatus = document.getElementById('doc-status');
+      docStatus.textContent = '📄 Analyzing document...';
+      docStatus.className = '';
+      this.disabled = true;
+      vscode.postMessage({ type: 'analyzeDocument' });
+      var self = this;
+      // Re-enable after 30s timeout
+      setTimeout(function() { self.disabled = false; }, 30000);
     });
 
     // ─── Mode Toggle ──────────────────────────────────────────
@@ -1486,6 +1774,7 @@ function getWebviewHtml(nonce: string): string {
         case 'columns': handleColumns(msg.tableName, msg.columns); break;
         case 'progress': handleProgress(msg); handleCleanupProgress(msg); break;
         case 'result': handleResult(msg.result, msg.tableDataSources); break;
+        case 'documentContext': handleDocumentContext(msg); break;
         case 'cleanupPlan': handleCleanupPlan(msg.plan); break;
         case 'cleanupResult': handleCleanupResult(msg.result); break;
         case 'cleanupRecordCount': handleCleanupRecordCount(msg.tableName, msg.count); break;
@@ -1517,6 +1806,40 @@ function getWebviewHtml(nonce: string): string {
         hide('section-results');
         hideCleanupSections();
       }
+    }
+
+    // ─── Document Context ───────────────────────────────────────
+    function handleDocumentContext(msg) {
+      var docStatus = document.getElementById('doc-status');
+      document.getElementById('btn-upload-doc').disabled = false;
+
+      // Set the business context field
+      if (msg.context) {
+        document.getElementById('app-context').value = msg.context;
+        docStatus.textContent = '✅ Context extracted from document.';
+      }
+
+      // Auto-select suggested tables (if tables are loaded)
+      if (msg.suggestedTables && msg.suggestedTables.length > 0 && allTables.length > 0) {
+        var matched = [];
+        msg.suggestedTables.forEach(function(tableName) {
+          var found = allTables.find(function(t) {
+            return t.logicalName === tableName;
+          });
+          if (found && !selectedTableNames.has(found.logicalName)) {
+            toggleTable(found.logicalName, found.displayName, true);
+            matched.push(found.displayName);
+          }
+        });
+        if (matched.length > 0) {
+          docStatus.textContent += ' Tables auto-selected: ' + matched.join(', ');
+        }
+        renderTableList();
+        updateConfigSection();
+      }
+
+      // Hide progress
+      hide('progress-area');
     }
 
     // ─── Tables ─────────────────────────────────────────────────
