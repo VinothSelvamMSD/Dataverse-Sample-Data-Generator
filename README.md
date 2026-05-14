@@ -2,8 +2,6 @@
 
 **The first tool that generates contextually meaningful sample data for Microsoft Dataverse — powered by AI.**
 
-![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/vinothselvam.dataverse-sample-data-generator)
-
 ---
 
 ## The Problem
@@ -59,6 +57,7 @@ Populating 5 related tables with 100 records each — complete with proper looku
 
 ### Generate Mode
 - **AI-powered contextual generation** — describe your business scenario and get data that fits
+- **Document upload for context extraction** — upload a requirements document (.docx, .pdf, or .txt) and the AI automatically extracts business context and auto-selects matching Dataverse tables. No manual typing needed — just upload your spec and generate.
 - **Multi-table support** with automatic dependency resolution (topological sort)
 - **Relationship handling** — automatically links records via lookups using `@odata.bind`
 - **Column filtering** — Best Applicable, Only Mandatory, or hand-pick specific columns
@@ -97,8 +96,9 @@ Populating 5 related tables with 100 records each — complete with proper looku
 3. Search for and select **"Dataverse Sample Data: Open Generator UI"**
 4. The Generator UI opens as a panel inside VS Code — everything happens here:
    - **Connect** — enter your Dataverse environment URL and sign in via browser
-   - **Select Tables** — pick the tables you want to populate (e.g., Account, Lead, Contact)
-   - **Configure** — set record count, column mode, and optionally describe your business context
+   - **Set Context** — type a business description, or **upload a document** (.docx, .pdf, .txt) to auto-extract context and auto-select matching tables
+   - **Select Tables** — pick the tables you want to populate (or let document upload auto-select them for you)
+   - **Configure** — set record count, column mode
    - **Generate** — click and watch real-time progress as AI-generated records are created
 
 ![Dataverse Sample Data Generator UI](Screenshots/Screen_Main.png)
